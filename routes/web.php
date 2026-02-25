@@ -15,22 +15,40 @@ Route::get('/setup-database', function () {
         return response()->json(['error' => 'Unauthorized'], 403);
     }
     try {
-        // Test database connection
-        DB::connection()->getPdo();
+        // Rollback any failed transactions first
+        try {
+            DB::statement('ROLLBACK');
+        } catch (\Exception $e) {
+            // Ignore if no transaction to rollback
+        }
         
-        // Run migrations
-        Artisan::call('migrate:fresh', ['--force' => true]);
+        // Drop all tables manually
+        $tables = DB::select("SELECT tablename FROM pg_tables WHERE schemaname = 'public'");
+        foreach ($tables as $table) {
+            try {
+                DB::statement("DROP TABLE IF EXISTS {$table->tablename} CASCADE");
+            } catch (\Exception $e) {
+                // Continue even if drop fails
+            }
+        }
+        
+        // Run migrations without transactions
+        Artisan::call('migrate', [
+            '--force' => true,
+            '--no-interaction' => true
+        ]);
         
         return response()->json([
             'success' => true,
             'message' => 'Database migrated successfully!',
+            'tables_dropped' => count($tables),
             'output' => Artisan::output()
         ]);
     } catch (\Exception $e) {
         return response()->json([
             'success' => false,
             'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
+            'hint' => 'Try resetting the database from Neon Console'
         ], 500);
     }
 });
