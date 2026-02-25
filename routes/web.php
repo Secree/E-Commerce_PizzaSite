@@ -2,18 +2,41 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\FrontPageController;
 use App\Http\Controllers\ProfileDashboardController;
 
-// Redirect root path based on auth status
-Route::get('/', function () {
-    if (Auth::check()) {
-        return redirect()->route('frontpage');
+// One-time database setup route
+Route::get('/setup-database', function () {
+    if (request('key') !== 'migrate2026') {
+        return response()->json(['error' => 'Unauthorized'], 403);
     }
-    return redirect()->route('login');
+    try {
+        // Test database connection
+        DB::connection()->getPdo();
+        
+        // Run migrations
+        Artisan::call('migrate:fresh', ['--force' => true]);
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Database migrated successfully!',
+            'output' => Artisan::output()
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ], 500);
+    }
 });
+
+// Public frontpage - no auth required
+Route::get('/', [FrontPageController::class, 'index'])->name('frontpage');
 
 // Authentication Routes (accessible without auth)
 Route::controller(AuthController::class)->group(function () {
@@ -28,9 +51,6 @@ Route::controller(AuthController::class)->group(function () {
 
 // Protected Routes (require authentication)
 Route::middleware(['auth'])->group(function () {
-    // Frontpage (replaces original /)
-    Route::get('/frontpage', [FrontPageController::class, 'index'])->name('frontpage');
-
     // Cart Routes
     Route::middleware(['auth'])->group(function () {
     
